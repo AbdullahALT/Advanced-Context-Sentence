@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Advanced Context Sentence
 // @namespace    https://openuserjs.org/users/abdullahalt
-// @version      1.01
+// @version      1.02
 // @description  Link the kanji page for the kanji in the context sentence section
 // @author       abdullahalt
 // @match        https://www.wanikani.com/lesson/session
@@ -21,45 +21,105 @@
   //-------------------------------------------------------------------INITIALIZATION--------------------------------------------------------------------//
   //-----------------------------------------------------------------------------------------------------------------------------------------------------//
   const wkof = window.wkof;
-  init();
 
-  function init() {
+  const vocabularyPage = "/vocabulary";
+  const sessions = [
+    {
+      page: "/review/session",
+      mount: "#item-info-col2",
+      loading: "#loading"
+    },
+    {
+      page: "/lesson/session",
+      mount: "#supplement-voc-context-sentence",
+      loading: "#loading-screen"
+    }
+  ];
+
+  main();
+
+  function main() {
+    // we don't need to observe any changes in the vocabulary page
+    if (isPage(vocabularyPage)) {
+      init(guruedKanji => evolveContextSentence(guruedKanji));
+      return;
+    }
+
+    // Get the target for the session page to watch for changes
+    const session = getSessionDependingOnPage();
+    if (session) startObserving(session);
+  }
+
+  function startObserving({ mount, loading }) {
+    const loadingObservationConfiguration = {
+      attributes: true,
+      childList: false,
+      subtree: false
+    };
+
+    const itemInfoObservationConfiguration = {
+      attributes: false,
+      childList: true,
+      subtree: false
+    };
+
+    const observeLoading = () => {
+      observeChanges({
+        element: loading,
+        config: loadingObservationConfiguration,
+        onChange: runInit
+      });
+    };
+
+    const runInit = () => {
+      init(guruedKanji => {
+        observeSentenceChanges(guruedKanji);
+      });
+    };
+
+    const observeSentenceChanges = guruedKanji => {
+      observeChanges({
+        element: mount,
+        continuesObservation: true,
+        config: itemInfoObservationConfiguration,
+        onChange: () => evolve(guruedKanji),
+        onInitObserver: () => evolve(guruedKanji)
+      });
+    };
+
+    const evolve = guruedKanji => evolveContextSentence(guruedKanji);
+
+    /**
+     * Basically, this function will fire an observer that will
+     * watch when the loading screen on the session pages (lesson and review) stops,
+     * then it will fire another observer to watch for changing the sentences,
+     * whenever the sentence change it will fire the evolveContextSentence over it again
+     *
+     * why wait for the loading screen stops? because the script slows down the animation
+     * which makes a really bad user experience
+     */
+    observeLoading();
+  }
+
+  function init(callback) {
     if (wkof) {
       wkof.include("ItemData");
       wkof
         .ready("ItemData")
         .then(getGuruedKanji)
         .then(extractKanjiFromResponse)
-        .then(start);
+        .then(callback);
     } else {
       console.warn(
         "Advanced Context Sentence: You are not using Wanikani Open Framework which " +
           "this script utlizes to see the kanji you learned and highlights it with a different color. " +
           "You can still use Advanced Context Sentence normally though"
       );
-      start();
+      callback();
     }
   }
 
-  function start(guruedKanji = null) {
-    if (window.location.pathname === "/review/session") {
-      observeChanges(
-        () => evolveContextSentence(guruedKanji),
-        "#item-info-col2"
-      );
-    }
-    if (window.location.pathname === "/lesson/session") {
-      evolveContextSentence(guruedKanji);
-      observeChanges(
-        () => evolveContextSentence(guruedKanji),
-        "#supplement-voc-context-sentence"
-      );
-    } else {
-      evolveContextSentence(guruedKanji);
-    }
-  }
-
-  function evolveContextSentence(guruedKanji) {
+  function evolveContextSentence(guruedKanji = null) {
     const sentences = document.querySelectorAll(".context-sentence-group");
 
     if (sentences.length === 0) return;
@@ -107,7 +167,15 @@
     return button;
   }
 
-  function observeChanges(callback, element) {
+  function observeChanges(params) {
+    const {
+      element,
+      config,
+      onChange,
+      onInitObserver = () => {},
+      continuesObservation = false
+    } = params;
+
     if (!window.MutationObserver) {
       console.warn(
         "Advanced Context Sentence: you're browser does not support MutationObserver " +
@@ -118,17 +186,13 @@
       return;
     }
 
-    const target = document.querySelector(element);
-    const config = {
-      attributes: false,
-      childList: true,
-      subtree: true
-    };
+    onInitObserver();
 
+    const target = document.querySelector(element);
     const observer = new MutationObserver(() => {
       observer.disconnect();
-      callback();
-      observer.observe(target, config);
+      onChange();
+      continuesObservation && observer.observe(target, config);
     });
 
     observer.observe(target, config);
@@ -137,6 +201,20 @@
   //-----------------------------------------------------------------------------------------------------------------------------------------------------//
   //-------------------------------------------------------------------HELPER FUNCTIONS------------------------------------------------------------------//
   //-----------------------------------------------------------------------------------------------------------------------------------------------------//
+
+  function isPage(page) {
+    const path = window.location.pathname;
+    return path.includes(page);
+  }
+
+  function getSessionDependingOnPage() {
+    let result = null;
+    sessions.forEach(session => {
+      if (isPage(session.page)) result = session;
+    });
+
+    return result;
+  }
 
   function highlightAndLinkKanji(char, guruedKanji) {
     let renderedChar = char;
