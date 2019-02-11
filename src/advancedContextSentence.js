@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Advanced Context Sentence
+// @name         Advanced Context Sentence [local]
 // @namespace    https://openuserjs.org/users/abdullahalt
-// @version      1.02
+// @version      1.1
 // @description  Link the kanji page for the kanji in the context sentence section
 // @author       abdullahalt
 // @match        https://www.wanikani.com/lesson/session
@@ -36,6 +36,10 @@
     }
   ];
 
+  const guruedKanjiColor = "#f100a1";
+  const unguruedKanjiColor = "#888888";
+
+  // Application start Point
   main();
 
   function main() {
@@ -120,6 +124,7 @@
   }
 
   function evolveContextSentence(guruedKanji = null) {
+    createReferrer();
     const sentences = document.querySelectorAll(".context-sentence-group");
 
     if (sentences.length === 0) return;
@@ -141,30 +146,25 @@
   }
 
   function createAudioButton(sentence) {
-    if (!window.SpeechSynthesisUtterance) {
-      console.warn(
-        "Advanced Context Sentence: your browser does not support SpeechSynthesisUtterance " +
-          "which this script utilaizes to implement the audio feature. update your broswer or use another one if you want that feature"
-      );
-      return null;
-    }
+    const mpegSource = createSource("audio/mpeg", sentence);
+    const oogSource = createSource("audio/oog", sentence);
+
+    const audio = document.createElement("audio");
+    audio.setAttribute("display", "none");
+    audio.append(mpegSource, oogSource);
 
     const button = document.createElement("button");
     button.setAttribute("class", "audio-btn audio-idle");
 
-    button.onclick = () => {
-      const msg = new SpeechSynthesisUtterance(sentence);
-      msg.lang = "ja-JP";
-      msg.rate = 11;
-      window.speechSynthesis.speak(msg);
-      msg.onstart = () => {
-        button.setAttribute("class", "audio-btn audio-play");
-      };
-      msg.onend = () => {
-        button.setAttribute("class", "audio-btn audio-idle");
-      };
-    };
-    return button;
+    // Handle events
+    button.onclick = () => audio.play();
+    audio.onplay = () => button.setAttribute("class", "audio-btn audio-play");
+    audio.onended = () => button.setAttribute("class", "audio-btn audio-idle");
+
+    // return audio and button as sibiling elements
+    const audioContainer = document.createElement("span");
+    audioContainer.append(button, audio);
+    return audioContainer;
   }
 
   function observeChanges(params) {
@@ -220,8 +220,8 @@
     let renderedChar = char;
     if (isKanji(char)) {
       renderedChar = isAtLeastGuru(char, guruedKanji)
-        ? renderKanji(char, "#f100a1")
-        : renderKanji(char, "#a100f1");
+        ? renderKanji(char, guruedKanjiColor)
+        : renderKanji(char, unguruedKanjiColor);
     }
     return renderedChar;
   }
@@ -271,5 +271,23 @@
       kanjis.push(item.data.characters);
     });
     return kanjis;
+  }
+
+  function createSource(type, sentence) {
+    const source = document.createElement("source");
+    source.setAttribute("type", type);
+    source.setAttribute(
+      "src",
+      `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ja&total=1&idx=0&q=${sentence}`
+    );
+    return source;
+  }
+
+  // Neccessary in order for audio to work
+  function createReferrer() {
+    const remRef = document.createElement("meta");
+    remRef.name = "referrer";
+    remRef.content = "no-referrer";
+    document.querySelector("head").append(remRef);
   }
 })();
