@@ -1,7 +1,9 @@
+"use strict";
+
 // ==UserScript==
-// @name         Advanced Context Sentence [local]
+// @name         Advanced Context Sentence
 // @namespace    https://openuserjs.org/users/abdullahalt
-// @version      1.1
+// @version      1.2
 // @description  Link the kanji page for the kanji in the context sentence section
 // @author       abdullahalt
 // @match        https://www.wanikani.com/lesson/session
@@ -17,27 +19,37 @@
 // ==/OpenUserJS==
 
 (() => {
-  //-----------------------------------------------------------------------------------------------------------------------------------------------------//
+  //-----------f------------------------------------------------------------------------------------------------------------------------------------------//
   //-------------------------------------------------------------------INITIALIZATION--------------------------------------------------------------------//
   //-----------------------------------------------------------------------------------------------------------------------------------------------------//
   const wkof = window.wkof;
 
+  const scriptId = "AdvancedContextSentence";
+  const scriptName = "Advanced Context Sentence";
   const vocabularyPage = "/vocabulary";
   const sessions = [
     {
       page: "/review/session",
       mount: "#item-info-col2",
-      loading: "#loading"
+      loading: "#loading",
+      getHeader: sentences => {
+        return sentences[0].previousElementSibling;
+      }
     },
     {
       page: "/lesson/session",
       mount: "#supplement-voc-context-sentence",
-      loading: "#loading-screen"
+      loading: "#loading-screen",
+      getHeader: sentences => {
+        return sentences[0].parentElement.previousElementSibling;
+      }
     }
   ];
 
-  const guruedKanjiColor = "#f100a1";
-  const unguruedKanjiColor = "#888888";
+  let state = {
+    guruedKanjiColor: "#f100a1",
+    unguruedKanjiColor: "#888888"
+  };
 
   // Application start Point
   main();
@@ -45,7 +57,11 @@
   function main() {
     // we don't need to observe any changes in the vocabulary page
     if (isPage(vocabularyPage)) {
-      init(guruedKanji => evolveContextSentence(guruedKanji));
+      init(guruedKanji =>
+        evolveContextSentence(guruedKanji, sentences => {
+          return sentences[0].previousElementSibling;
+        })
+      );
       return;
     }
 
@@ -54,7 +70,7 @@
     if (session) startObserving(session);
   }
 
-  function startObserving({ mount, loading }) {
+  function startObserving({ mount, loading, getHeader }) {
     const loadingObservationConfiguration = {
       attributes: true,
       childList: false,
@@ -91,7 +107,7 @@
       });
     };
 
-    const evolve = guruedKanji => evolveContextSentence(guruedKanji);
+    const evolve = guruedKanji => evolveContextSentence(guruedKanji, getHeader);
 
     /**
      * Basically, this function will fire an observer that will
@@ -106,43 +122,63 @@
   }
 
   function init(callback) {
+    console.log("init acs");
     if (wkof) {
-      wkof.include("ItemData");
+      wkof.include("ItemData,Settings");
       wkof
-        .ready("ItemData")
+        .ready("ItemData,Settings")
+        .then(loadSettings)
+        .then(proccessLoadedSettings)
         .then(getGuruedKanji)
         .then(extractKanjiFromResponse)
         .then(callback);
     } else {
       console.warn(
-        "Advanced Context Sentence: You are not using Wanikani Open Framework which " +
-          "this script utlizes to see the kanji you learned and highlights it with a different color. " +
+        scriptName +
+          ": You are not using Wanikani Open Framework which " +
+          "this script utlizes to see the kanji you learned and highlights it with a different color, " +
+          "it also provides the settings dailog for the scrip. " +
           "You can still use Advanced Context Sentence normally though"
       );
       callback();
     }
   }
 
-  function evolveContextSentence(guruedKanji = null) {
+  function evolveContextSentence(guruedKanji = null, getHeader) {
     createReferrer();
     const sentences = document.querySelectorAll(".context-sentence-group");
-
     if (sentences.length === 0) return;
 
+    if (wkof) evolveHeader(getHeader(sentences));
+
     sentences.forEach(sentence => {
+      console.log(sentence);
       const japaneseSentence = sentence.querySelector('p[lang="ja"]');
       const audioButton = createAudioButton(japaneseSentence.innerHTML);
       let advancedExampleSentence = "";
       const chars = japaneseSentence.innerHTML.split("");
       chars.forEach(char => {
-        const renderedChar = highlightAndLinkKanji(char, guruedKanji);
+        const renderedChar = tagAndLinkKanji(char, guruedKanji);
         advancedExampleSentence = advancedExampleSentence.concat(renderedChar);
       });
 
       japaneseSentence.innerHTML = advancedExampleSentence;
+      highlightKanji();
 
-      audioButton && japaneseSentence.append(audioButton);
+      japaneseSentence.append(audioButton);
     });
+  }
+
+  function evolveHeader(header) {
+    const settings = document.createElement("i");
+    settings.setAttribute("class", "icon-gear");
+    settings.setAttribute(
+      "style",
+      "font-size: 14px; cursor: pointer; vertical-align: middle; margin-left: 10px;"
+    );
+    settings.onclick = openSettings;
+
+    header.append(settings);
   }
 
   function createAudioButton(sentence) {
@@ -178,7 +214,8 @@
 
     if (!window.MutationObserver) {
       console.warn(
-        "Advanced Context Sentence: you're browser does not support MutationObserver " +
+        scriptName +
+          ": you're browser does not support MutationObserver " +
           "which this script utilaizes to implement its features in /lesson/session and /review/sesson. " +
           "update you're broswer or use another one if you want Advanced Context Sentence to work on them." +
           "This script is still useful on /vocabulary page though"
@@ -199,6 +236,55 @@
   }
 
   //-----------------------------------------------------------------------------------------------------------------------------------------------------//
+  //-------------------------------------------------------------------SETTINGS--------------------------------------------------------------------------//
+  //-----------------------------------------------------------------------------------------------------------------------------------------------------//
+
+  function loadSettings() {
+    return wkof.Settings.load(scriptId, state);
+  }
+
+  function proccessLoadedSettings() {
+    state = wkof.settings[scriptId];
+    console.log(state);
+  }
+
+  function openSettings() {
+    var config = {
+      script_id: scriptId,
+      title: scriptName,
+      on_save: updateSettings,
+      content: {
+        highlightColors: {
+          type: "section",
+          label: "Highlight Colors" // A string that will appear in the section.
+        },
+        guruedKanjiColor: {
+          type: "color",
+          label: "Gurued Kanji",
+          hover_tip:
+            "Kanji you have on Guru or higher will be highlited using this color",
+          default: state.guruedKanjiColor
+        },
+        unguruedKanjiColor: {
+          type: "color",
+          label: "Ungurued Kanji",
+          hover_tip:
+            "Kanji you have on Apprentice or have never been unlucked will be highlited using this color",
+          default: state.unguruedKanjiColor
+        }
+      }
+    };
+    var dialog = new wkof.Settings(config);
+    dialog.open();
+  }
+
+  // Called when the user clicks the Save button on the Settings dialog.
+  function updateSettings() {
+    state = wkof.settings[scriptId];
+    highlightKanji();
+  }
+
+  //-----------------------------------------------------------------------------------------------------------------------------------------------------//
   //-------------------------------------------------------------------HELPER FUNCTIONS------------------------------------------------------------------//
   //-----------------------------------------------------------------------------------------------------------------------------------------------------//
 
@@ -216,12 +302,12 @@
     return result;
   }
 
-  function highlightAndLinkKanji(char, guruedKanji) {
+  function tagAndLinkKanji(char, guruedKanji) {
     let renderedChar = char;
     if (isKanji(char)) {
       renderedChar = isAtLeastGuru(char, guruedKanji)
-        ? renderKanji(char, guruedKanjiColor)
-        : renderKanji(char, unguruedKanjiColor);
+        ? renderKanji(char, "guruedKanji")
+        : renderKanji(char, "unguruedKanji");
     }
     return renderedChar;
   }
@@ -246,11 +332,11 @@
    * Knji pages always use https://www.wanikani.com/kanji/{kanji} where {kanji} is the kanji character
    */
   function renderKanji(kanji, color) {
-    return `<a href="https://www.wanikani.com/kanji/${kanji}" target="_blank" style="color: ${color}" title="go to kanji page">${kanji}</a>`;
+    return `<a href="https://www.wanikani.com/kanji/${kanji}" target="_blank" class="${color}" title="go to kanji page">${kanji}</a>`;
   }
 
   function isAtLeastGuru(char, guruedKanji) {
-    if (!guruedKanji) return false;
+    if (!guruedKanji) return true;
     return guruedKanji.includes(char);
   }
 
@@ -270,6 +356,7 @@
     items.forEach(item => {
       kanjis.push(item.data.characters);
     });
+    console.log(kanjis);
     return kanjis;
   }
 
@@ -281,6 +368,22 @@
       `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ja&total=1&idx=0&q=${sentence}`
     );
     return source;
+  }
+
+  function highlightKanji() {
+    const gurued = document.querySelectorAll(
+      ".context-sentence-group a.guruedKanji"
+    );
+    gurued.forEach(kanji => {
+      kanji.setAttribute("style", `color: ${state.guruedKanjiColor}`);
+    });
+
+    const ungurued = document.querySelectorAll(
+      ".context-sentence-group a.unguruedKanji"
+    );
+    ungurued.forEach(kanji => {
+      kanji.setAttribute("style", `color: ${state.unguruedKanjiColor}`);
+    });
   }
 
   // Neccessary in order for audio to work
