@@ -3,12 +3,13 @@
 // ==UserScript==
 // @name         Advanced Context Sentence
 // @namespace    https://openuserjs.org/users/abdullahalt
-// @version      1.2
+// @version      1.3
 // @description  Link the kanji page for the kanji in the context sentence section
 // @author       abdullahalt
 // @match        https://www.wanikani.com/lesson/session
 // @match        https://www.wanikani.com/review/session
 // @match        https://www.wanikani.com/vocabulary/*
+// @require      https://greasyfork.org/scripts/377613-wanikani-open-framework-jlpt-joyo-and-frequency-filters/code/Wanikani%20Open%20Framework%20JLPT,%20Joyo,%20and%20Frequency%20filters.user.js
 // @grant        none
 // @copyright    2019, abdullahalt (https://openuserjs.org//users/abdullahalt)
 // @license MIT
@@ -47,8 +48,11 @@
   ];
 
   let state = {
-    guruedKanjiColor: "#f100a1",
-    unguruedKanjiColor: "#888888"
+    settings: {
+      guruedKanjiColor: "#f100a1",
+      unguruedKanjiColor: "#888888"
+    },
+    kanjis: []
   };
 
   // Application start Point
@@ -57,8 +61,8 @@
   function main() {
     // we don't need to observe any changes in the vocabulary page
     if (isPage(vocabularyPage)) {
-      init(guruedKanji =>
-        evolveContextSentence(guruedKanji, sentences => {
+      init(() =>
+        evolveContextSentence(sentences => {
           return sentences[0].previousElementSibling;
         })
       );
@@ -92,22 +96,22 @@
     };
 
     const runInit = () => {
-      init(guruedKanji => {
-        observeSentenceChanges(guruedKanji);
+      init(() => {
+        observeSentenceChanges();
       });
     };
 
-    const observeSentenceChanges = guruedKanji => {
+    const observeSentenceChanges = () => {
       observeChanges({
         element: mount,
         continuesObservation: true,
         config: itemInfoObservationConfiguration,
-        onChange: () => evolve(guruedKanji),
-        onInitObserver: () => evolve(guruedKanji)
+        onChange: () => evolve(),
+        onInitObserver: () => evolve()
       });
     };
 
-    const evolve = guruedKanji => evolveContextSentence(guruedKanji, getHeader);
+    const evolve = () => evolveContextSentence(getHeader);
 
     /**
      * Basically, this function will fire an observer that will
@@ -123,6 +127,9 @@
 
   function init(callback) {
     console.log("init acs");
+    createReferrer();
+    createStyle();
+
     if (wkof) {
       wkof.include("ItemData,Settings");
       wkof
@@ -144,8 +151,9 @@
     }
   }
 
-  function evolveContextSentence(guruedKanji = null, getHeader) {
-    createReferrer();
+  function evolveContextSentence(getHeader) {
+    console.log("evolving...");
+
     const sentences = document.querySelectorAll(".context-sentence-group");
     if (sentences.length === 0) return;
 
@@ -158,7 +166,7 @@
       let advancedExampleSentence = "";
       const chars = japaneseSentence.innerHTML.split("");
       chars.forEach(char => {
-        const renderedChar = tagAndLinkKanji(char, guruedKanji);
+        const renderedChar = tagAndLinkKanji(char);
         advancedExampleSentence = advancedExampleSentence.concat(renderedChar);
       });
 
@@ -178,10 +186,20 @@
     );
     settings.onclick = openSettings;
 
-    header.append(settings);
+    if (!header.querySelector("i.icon-gear")) header.append(settings);
   }
 
+  /**
+   * To fix a weird issue that occur in the session pages(where all audios play
+   * if the audio for reading the word is clicked),
+   * we have to create the audio element only for the time of palying the audio
+   * and remove it afterward
+   * @param {*} sentence
+   */
   function createAudioButton(sentence) {
+    // contains audio and button as sibiling elements
+    const audioContainer = document.createElement("span");
+
     const mpegSource = createSource("audio/mpeg", sentence);
     const oogSource = createSource("audio/oog", sentence);
 
@@ -192,15 +210,28 @@
     const button = document.createElement("button");
     button.setAttribute("class", "audio-btn audio-idle");
 
-    // Handle events
-    button.onclick = () => audio.play();
-    audio.onplay = () => button.setAttribute("class", "audio-btn audio-play");
-    audio.onended = () => button.setAttribute("class", "audio-btn audio-idle");
+    button.onclick = () => {
+      audioContainer.append(audio);
+      audio.play();
+    };
+    audio.onplay = () => {
+      button.setAttribute("class", "audio-btn audio-play");
+    };
+    audio.onended = () => {
+      button.setAttribute("class", "audio-btn audio-idle");
+      audio.remove();
+    };
 
-    // return audio and button as sibiling elements
-    const audioContainer = document.createElement("span");
-    audioContainer.append(button, audio);
+    audioContainer.append(button);
     return audioContainer;
+  }
+
+  function fixSessionAudio() {
+    const button = document.querySelector("#option-audio span button");
+    const audio = document.querySelector("#option-audio span audio");
+    button.onclick = e => {
+      audio.play();
+    };
   }
 
   function observeChanges(params) {
@@ -240,12 +271,11 @@
   //-----------------------------------------------------------------------------------------------------------------------------------------------------//
 
   function loadSettings() {
-    return wkof.Settings.load(scriptId, state);
+    return wkof.Settings.load(scriptId, state.settings);
   }
 
   function proccessLoadedSettings() {
-    state = wkof.settings[scriptId];
-    console.log(state);
+    state.settings = wkof.settings[scriptId];
   }
 
   function openSettings() {
@@ -263,14 +293,14 @@
           label: "Gurued Kanji",
           hover_tip:
             "Kanji you have on Guru or higher will be highlited using this color",
-          default: state.guruedKanjiColor
+          default: state.settings.guruedKanjiColor
         },
         unguruedKanjiColor: {
           type: "color",
           label: "Ungurued Kanji",
           hover_tip:
             "Kanji you have on Apprentice or have never been unlucked will be highlited using this color",
-          default: state.unguruedKanjiColor
+          default: state.settings.unguruedKanjiColor
         }
       }
     };
@@ -280,7 +310,7 @@
 
   // Called when the user clicks the Save button on the Settings dialog.
   function updateSettings() {
-    state = wkof.settings[scriptId];
+    state.settings = wkof.settings[scriptId];
     highlightKanji();
   }
 
@@ -302,14 +332,8 @@
     return result;
   }
 
-  function tagAndLinkKanji(char, guruedKanji) {
-    let renderedChar = char;
-    if (isKanji(char)) {
-      renderedChar = isAtLeastGuru(char, guruedKanji)
-        ? renderKanji(char, "guruedKanji")
-        : renderKanji(char, "unguruedKanji");
-    }
-    return renderedChar;
+  function tagAndLinkKanji(char) {
+    return isKanji(char) ? renderKanji(char) : char;
   }
 
   /**
@@ -331,21 +355,87 @@
    * Renders the link for a kanji you've gurued
    * Knji pages always use https://www.wanikani.com/kanji/{kanji} where {kanji} is the kanji character
    */
-  function renderKanji(kanji, color) {
-    return `<a href="https://www.wanikani.com/kanji/${kanji}" target="_blank" class="${color}" title="go to kanji page">${kanji}</a>`;
+  function renderKanji(char) {
+    const kanji = state.kanjis.find(item => item.char == char);
+    console.log(kanji);
+
+    const tooltip = createTooltip(kanji);
+    return `<a href="${
+      kanji ? kanji.url : `https://jisho.org/search/${char}`
+    }" target="_blank" class="${
+      !wkof || (kanji && kanji.srs > 4) ? "guruedKanji" : "unguruedKanji"
+    } acs-tooltip-target">${char}${tooltip}</a>`;
   }
 
-  function isAtLeastGuru(char, guruedKanji) {
-    if (!guruedKanji) return true;
-    return guruedKanji.includes(char);
+  function createTooltip(kanji) {
+    if (!wkof) return "";
+
+    if (!kanji) {
+      return `
+        <div class="acs-tooltip">
+          <span>Wanikani doesn't have this kanji! :(</span>
+        </div>
+      `;
+    }
+
+    const onyomis = kanji.readings.filter(
+      item => item.type.toLocaleLowerCase() === "onyomi"
+    );
+    const kunyomis = kanji.readings.filter(
+      item => item.type.toLocaleLowerCase() === "kunyomi"
+    );
+
+    const onyomi = stringfyArray(onyomis, item => item.reading);
+    const kunyomi = stringfyArray(kunyomis, item => item.reading);
+    const meaning = stringfyArray(kanji.meanings, item => item.meaning);
+
+    console.log(onyomi);
+    console.log(kunyomi);
+    console.log(meaning);
+    return `<div class="acs-tooltip">
+        ${generateInfo("LV", kanji.level)}
+        ${onyomi === "None" || onyomi === "" ? "" : generateInfo("ON", onyomi)}
+        ${
+          kunyomi === "None" || kunyomi === ""
+            ? ""
+            : generateInfo("KN", kunyomi)
+        }
+        ${generateInfo("EN", meaning)}
+        ${wkof && generateInfo("JOYO", kanji.joyo)}
+        ${wkof && generateInfo("JLPT", kanji.jlpt)}
+        ${wkof && generateInfo("FREQ", kanji.frequency)}
+      </div>`;
+  }
+
+  function stringfyArray(array, pathToString) {
+    let stringfied = "";
+    array.forEach(item => {
+      stringfied = stringfied.concat(pathToString(item) + ", ");
+    });
+    stringfied = stringfied.substring(0, stringfied.length - 2);
+    return stringfied;
+  }
+
+  function generateInfo(title, info) {
+    return `
+      <div>
+        <span class="acs-tooltip-title">${title}</span>
+        <span>${info}</span>
+      </div>
+    `;
   }
 
   function getGuruedKanji() {
     return wkof.ItemData.get_items({
       wk_items: {
+        options: {
+          assignments: true
+        },
         filters: {
           item_type: ["kan"],
-          srs: ["guru1", "guru2", "mast", "enli", "burn"]
+          include_frequency_data: true,
+          include_jlpt_data: true,
+          include_joyo_data: true
         }
       }
     });
@@ -353,11 +443,24 @@
 
   function extractKanjiFromResponse(items) {
     const kanjis = [];
+    console.log("items");
+    console.log(items);
     items.forEach(item => {
-      kanjis.push(item.data.characters);
+      kanjis.push({
+        char: item.data.characters,
+        readings: item.data.readings,
+        level: item.data.level,
+        meanings: item.data.meanings,
+        url: item.data.document_url,
+        srs: item.assignments ? item.assignments.srs_stage : -1,
+        jlpt: item.jlpt_level,
+        joyo: item.joyo_grade,
+        frequency: item.frequency
+      });
     });
-    console.log(kanjis);
-    return kanjis;
+
+    state.kanjis = kanjis;
+    console.log(state.kanjis);
   }
 
   function createSource(type, sentence) {
@@ -375,14 +478,17 @@
       ".context-sentence-group a.guruedKanji"
     );
     gurued.forEach(kanji => {
-      kanji.setAttribute("style", `color: ${state.guruedKanjiColor}`);
+      kanji.setAttribute("style", `color: ${state.settings.guruedKanjiColor}`);
     });
 
     const ungurued = document.querySelectorAll(
       ".context-sentence-group a.unguruedKanji"
     );
     ungurued.forEach(kanji => {
-      kanji.setAttribute("style", `color: ${state.unguruedKanjiColor}`);
+      kanji.setAttribute(
+        "style",
+        `color: ${state.settings.unguruedKanjiColor}`
+      );
     });
   }
 
@@ -392,5 +498,61 @@
     remRef.name = "referrer";
     remRef.content = "no-referrer";
     document.querySelector("head").append(remRef);
+  }
+
+  // Styles
+  function createStyle() {
+    const style = document.createElement("style");
+    style.innerHTML = `
+      
+      .acs-tooltip-target {
+        position: relative;
+        display: inline-block;
+      }
+
+      .acs-tooltip-target:hover .acs-tooltip {
+        visibility: visible;
+      }
+      
+      .acs-tooltip-target .acs-tooltip {
+        visibility: hidden;
+        width: 120px;
+        background-color: black;
+        color: #fff;
+        padding: 5px 7px;
+        border-radius: 6px;
+        width: 120px;
+        top: 100%;
+        left: 50%;
+        margin-left: -67px;
+        margin-top: 10px;
+        position: absolute;
+        text-shadow: none;
+        font-size: 0.8em;
+        z-index: 1;
+      }
+
+      .acs-tooltip-target .acs-tooltip::after {
+        content: " ";
+        position: absolute;
+        bottom: 100%;  
+        left: 50%;
+        margin-left: -5px;
+        border-width: 5px;
+        border-style: solid;
+        border-color: transparent transparent black transparent;
+      }
+
+      .acs-tooltip-target .acs-tooltip div {
+        margin-bottom: 0px;
+        line-height: 16px;
+      }
+
+      .acs-tooltip-target .acs-tooltip .acs-tooltip-title {
+        color: #939095
+      }
+    `;
+
+    document.querySelector("head").append(style);
   }
 })();
