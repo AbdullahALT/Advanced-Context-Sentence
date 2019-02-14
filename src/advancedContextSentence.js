@@ -3,7 +3,7 @@
 // ==UserScript==
 // @name         Advanced Context Sentence
 // @namespace    https://openuserjs.org/users/abdullahalt
-// @version      1.3
+// @version      1.31
 // @description  Link the kanji page for the kanji in the context sentence section
 // @author       abdullahalt
 // @match        https://www.wanikani.com/lesson/session
@@ -203,23 +203,25 @@
     const mpegSource = createSource("audio/mpeg", sentence);
     const oogSource = createSource("audio/oog", sentence);
 
-    const audio = document.createElement("audio");
-    audio.setAttribute("display", "none");
-    audio.append(mpegSource, oogSource);
-
     const button = document.createElement("button");
     button.setAttribute("class", "audio-btn audio-idle");
 
     button.onclick = () => {
+      const audio = document.createElement("audio");
+      audio.setAttribute("display", "none");
+      audio.append(mpegSource, oogSource);
+
+      audio.onplay = () => {
+        button.setAttribute("class", "audio-btn audio-play");
+      };
+
+      audio.onended = () => {
+        button.setAttribute("class", "audio-btn audio-idle");
+        audio.remove();
+      };
+
       audioContainer.append(audio);
       audio.play();
-    };
-    audio.onplay = () => {
-      button.setAttribute("class", "audio-btn audio-play");
-    };
-    audio.onended = () => {
-      button.setAttribute("class", "audio-btn audio-idle");
-      audio.remove();
     };
 
     audioContainer.append(button);
@@ -517,7 +519,7 @@
       .acs-tooltip-target .acs-tooltip {
         visibility: hidden;
         width: 120px;
-        background-color: black;
+        background-color: rgba(0,0,0,0.8);
         color: #fff;
         padding: 5px 7px;
         border-radius: 6px;
