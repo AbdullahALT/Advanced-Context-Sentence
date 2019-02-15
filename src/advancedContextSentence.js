@@ -1,15 +1,14 @@
 "use strict";
 
 // ==UserScript==
-// @name         Advanced Context Sentence
+// @name         Advanced Context Sentence [local]
 // @namespace    https://openuserjs.org/users/abdullahalt
-// @version      1.31
+// @version      1.32
 // @description  Link the kanji page for the kanji in the context sentence section
 // @author       abdullahalt
 // @match        https://www.wanikani.com/lesson/session
 // @match        https://www.wanikani.com/review/session
 // @match        https://www.wanikani.com/vocabulary/*
-// @require      https://greasyfork.org/scripts/377613-wanikani-open-framework-jlpt-joyo-and-frequency-filters/code/Wanikani%20Open%20Framework%20JLPT,%20Joyo,%20and%20Frequency%20filters.user.js
 // @grant        none
 // @copyright    2019, abdullahalt (https://openuserjs.org//users/abdullahalt)
 // @license MIT
@@ -20,10 +19,11 @@
 // ==/OpenUserJS==
 
 (() => {
-  //-----------f------------------------------------------------------------------------------------------------------------------------------------------//
-  //-------------------------------------------------------------------INITIALIZATION--------------------------------------------------------------------//
-  //-----------------------------------------------------------------------------------------------------------------------------------------------------//
+  //--------------------------------------------------------------------------------------------------------------//
+  //-----------------------------------------------INITIALIZATION-------------------------------------------------//
+  //--------------------------------------------------------------------------------------------------------------//
   const wkof = window.wkof;
+  const jfff = window.jlpt_joyo_freq_filters;
 
   const scriptId = "AdvancedContextSentence";
   const scriptName = "Advanced Context Sentence";
@@ -126,7 +126,6 @@
   }
 
   function init(callback) {
-    console.log("init acs");
     createReferrer();
     createStyle();
 
@@ -141,26 +140,19 @@
         .then(callback);
     } else {
       console.warn(
-        scriptName +
-          ": You are not using Wanikani Open Framework which " +
-          "this script utlizes to see the kanji you learned and highlights it with a different color, " +
-          "it also provides the settings dailog for the scrip. " +
-          "You can still use Advanced Context Sentence normally though"
+        `${scriptName}: You are not using Wanikani Open Framework which this script utlizes to see the kanji you learned and highlights it with a different color, it also provides the settings dailog for the scrip. You can still use Advanced Context Sentence normally though`
       );
       callback();
     }
   }
 
   function evolveContextSentence(getHeader) {
-    console.log("evolving...");
-
     const sentences = document.querySelectorAll(".context-sentence-group");
     if (sentences.length === 0) return;
 
     if (wkof) evolveHeader(getHeader(sentences));
 
     sentences.forEach(sentence => {
-      console.log(sentence);
       const japaneseSentence = sentence.querySelector('p[lang="ja"]');
       const audioButton = createAudioButton(japaneseSentence.innerHTML);
       let advancedExampleSentence = "";
@@ -207,6 +199,14 @@
     button.setAttribute("class", "audio-btn audio-idle");
 
     button.onclick = () => {
+      if (audioContainer.childElementCount > 1) {
+        const audio = audioContainer.querySelector("audio");
+        audio.pause();
+        button.setAttribute("class", "audio-btn audio-idle");
+        audio.remove();
+        return;
+      }
+
       const audio = document.createElement("audio");
       audio.setAttribute("display", "none");
       audio.append(mpegSource, oogSource);
@@ -247,11 +247,7 @@
 
     if (!window.MutationObserver) {
       console.warn(
-        scriptName +
-          ": you're browser does not support MutationObserver " +
-          "which this script utilaizes to implement its features in /lesson/session and /review/sesson. " +
-          "update you're broswer or use another one if you want Advanced Context Sentence to work on them." +
-          "This script is still useful on /vocabulary page though"
+        `${scriptName}: you're browser does not support MutationObserver which this script utilaizes to implement its features in /lesson/session and /review/sesson. update you're broswer or use another one if you want Advanced Context Sentence to work on them. This script is still useful on /vocabulary page though`
       );
       return;
     }
@@ -268,9 +264,9 @@
     observer.observe(target, config);
   }
 
-  //-----------------------------------------------------------------------------------------------------------------------------------------------------//
-  //-------------------------------------------------------------------SETTINGS--------------------------------------------------------------------------//
-  //-----------------------------------------------------------------------------------------------------------------------------------------------------//
+  //--------------------------------------------------------------------------------------------------------------//
+  //----------------------------------------------SETTINGS--------------------------------------------------------//
+  //--------------------------------------------------------------------------------------------------------------//
 
   function loadSettings() {
     return wkof.Settings.load(scriptId, state.settings);
@@ -316,9 +312,9 @@
     highlightKanji();
   }
 
-  //-----------------------------------------------------------------------------------------------------------------------------------------------------//
-  //-------------------------------------------------------------------HELPER FUNCTIONS------------------------------------------------------------------//
-  //-----------------------------------------------------------------------------------------------------------------------------------------------------//
+  //---------------------------------------------------------------------------------------------------------------//
+  //-------------------------------------------HELPER FUNCTIONS----------------------------------------------------//
+  //---------------------------------------------------------------------------------------------------------------//
 
   function isPage(page) {
     const path = window.location.pathname;
@@ -359,7 +355,6 @@
    */
   function renderKanji(char) {
     const kanji = state.kanjis.find(item => item.char == char);
-    console.log(kanji);
 
     const tooltip = createTooltip(kanji);
     return `<a href="${
@@ -391,21 +386,19 @@
     const kunyomi = stringfyArray(kunyomis, item => item.reading);
     const meaning = stringfyArray(kanji.meanings, item => item.meaning);
 
-    console.log(onyomi);
-    console.log(kunyomi);
-    console.log(meaning);
+    console.log("createTooltip");
     return `<div class="acs-tooltip">
         ${generateInfo("LV", kanji.level)}
-        ${onyomi === "None" || onyomi === "" ? "" : generateInfo("ON", onyomi)}
-        ${
-          kunyomi === "None" || kunyomi === ""
-            ? ""
-            : generateInfo("KN", kunyomi)
-        }
         ${generateInfo("EN", meaning)}
-        ${wkof && generateInfo("JOYO", kanji.joyo)}
-        ${wkof && generateInfo("JLPT", kanji.jlpt)}
-        ${wkof && generateInfo("FREQ", kanji.frequency)}
+        ${onyomi !== "None" && onyomi !== "" ? generateInfo("ON", onyomi) : ""}
+        ${
+          kunyomi !== "None" && kunyomi !== ""
+            ? generateInfo("KN", kunyomi)
+            : ""
+        }
+        ${wkof && jfff ? generateInfo("JOYO", kanji.joyo) : ""}
+        ${wkof && jfff ? generateInfo("JLPT", kanji.jlpt) : ""}
+        ${wkof && jfff ? generateInfo("FREQ", kanji.frequency) : ""}
       </div>`;
   }
 
@@ -428,27 +421,36 @@
   }
 
   function getGuruedKanji() {
+    const filters = {
+      item_type: ["kan"]
+    };
+
+    if (jfff) {
+      console.log("getGuruedKanji");
+      filters.include_frequency_data = true;
+      filters.include_jlpt_data = true;
+      filters.include_joyo_data = true;
+    } else {
+      console.warn(
+        `${scriptName}: You don't have Open Framework JLPT Joyo and Frequency Filters by @Kumirei installed (version 0.1.3 or later). Install the script if you want to get more information while hovering on Kanji on Context Sentences. Script URL: https://community.wanikani.com/t/userscript-open-framework-jlpt-joyo-and-frequency-filters/35096`
+      );
+    }
+
     return wkof.ItemData.get_items({
       wk_items: {
         options: {
           assignments: true
         },
-        filters: {
-          item_type: ["kan"],
-          include_frequency_data: true,
-          include_jlpt_data: true,
-          include_joyo_data: true
-        }
+        filters
       }
     });
   }
 
   function extractKanjiFromResponse(items) {
     const kanjis = [];
-    console.log("items");
-    console.log(items);
+
     items.forEach(item => {
-      kanjis.push({
+      const kanji = {
         char: item.data.characters,
         readings: item.data.readings,
         level: item.data.level,
@@ -458,11 +460,22 @@
         jlpt: item.jlpt_level,
         joyo: item.joyo_grade,
         frequency: item.frequency
-      });
+      };
+
+      kanjis.push(enhanceWithAditionalFilters(kanji, item));
     });
 
     state.kanjis = kanjis;
-    console.log(state.kanjis);
+  }
+
+  function enhanceWithAditionalFilters(kanji, item) {
+    if (jfff) {
+      console.log("enhanceWithAditionalFilters");
+      kanji.jlpt = item.jlpt_level;
+      kanji.joyo = item.joyo_grade;
+      kanji.frequency = item.frequency;
+    }
+    return kanji;
   }
 
   function createSource(type, sentence) {
@@ -480,7 +493,10 @@
       ".context-sentence-group a.guruedKanji"
     );
     gurued.forEach(kanji => {
-      kanji.setAttribute("style", `color: ${state.settings.guruedKanjiColor}`);
+      kanji.setAttribute(
+        "style",
+        `color: ${state.settings.guruedKanjiColor} !important`
+      );
     });
 
     const ungurued = document.querySelectorAll(
@@ -489,7 +505,7 @@
     ungurued.forEach(kanji => {
       kanji.setAttribute(
         "style",
-        `color: ${state.settings.unguruedKanjiColor}`
+        `color: ${state.settings.unguruedKanjiColor} !important`
       );
     });
   }
@@ -507,6 +523,17 @@
     const style = document.createElement("style");
     style.innerHTML = `
       
+      /* Kanji */
+      .context-sentence-group p a {
+        text-decoration: none;
+      }
+
+      .context-sentence-group p a:hover {
+        text-decoration: none;
+      }
+      
+      /* Styling Tooltip */
+
       .acs-tooltip-target {
         position: relative;
         display: inline-block;
@@ -551,8 +578,9 @@
       }
 
       .acs-tooltip-target .acs-tooltip .acs-tooltip-title {
-        color: #939095
+        color: #939095 !important
       }
+
     `;
 
     document.querySelector("head").append(style);
