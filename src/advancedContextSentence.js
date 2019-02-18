@@ -3,8 +3,8 @@
 // ==UserScript==
 // @name         Advanced Context Sentence [local]
 // @namespace    https://openuserjs.org/users/abdullahalt
-// @version      1.32
-// @description  Link the kanji page for the kanji in the context sentence section
+// @version      1.34
+// @description  Enhance the context sentence section, highlighting kanji and adding audio
 // @author       abdullahalt
 // @match        https://www.wanikani.com/lesson/session
 // @match        https://www.wanikani.com/review/session
@@ -23,7 +23,6 @@
   //-----------------------------------------------INITIALIZATION-------------------------------------------------//
   //--------------------------------------------------------------------------------------------------------------//
   const wkof = window.wkof;
-  const jfff = window.jlpt_joyo_freq_filters;
 
   const scriptId = "AdvancedContextSentence";
   const scriptName = "Advanced Context Sentence";
@@ -55,7 +54,8 @@
       unrecognizedKanjiColor: "#888888",
       recognitionLevel: "5"
     },
-    kanjis: []
+    kanjis: [],
+    jiff: false // JLPT, Joyo and Frequency Filters
   };
 
   // Application start Point
@@ -420,9 +420,9 @@
             : ""
         }
         ${generateInfo("SRS", stringfySrs(kanji.srs))}
-        ${jfff ? generateInfo("JOYO", kanji.joyo) : ""}
-        ${jfff ? generateInfo("JLPT", kanji.jlpt) : ""}
-        ${jfff ? generateInfo("FREQ", kanji.frequency) : ""}
+        ${state.jiff ? generateInfo("JOYO", kanji.joyo) : ""}
+        ${state.jiff ? generateInfo("JLPT", kanji.jlpt) : ""}
+        ${state.jiff ? generateInfo("FREQ", kanji.frequency) : ""}
       </div>`;
   }
 
@@ -478,14 +478,14 @@
       item_type: ["kan"]
     };
 
-    if (jfff) {
-      console.log("getKanji");
+    if (wkof.get_state("wkof.Kumirei.JJFFilters") === "ready") {
+      state.jiff = true;
       filters.include_frequency_data = true;
       filters.include_jlpt_data = true;
       filters.include_joyo_data = true;
     } else {
       console.warn(
-        `${scriptName}: You don't have Open Framework JLPT Joyo and Frequency Filters by @Kumirei installed (version 0.1.3 or later). Install the script if you want to get more information while hovering on Kanji on Context Sentences. Script URL: https://community.wanikani.com/t/userscript-open-framework-jlpt-joyo-and-frequency-filters/35096`
+        `${scriptName}: You don't have Open Framework JLPT Joyo and Frequency Filters by @Kumirei installed (version 0.1.4 or later). Install the script if you want to get more information while hovering on Kanji on Context Sentences. Script URL: https://community.wanikani.com/t/userscript-open-framework-jlpt-joyo-and-frequency-filters/35096`
       );
     }
 
@@ -522,7 +522,7 @@
   }
 
   function enhanceWithAditionalFilters(kanji, item) {
-    if (jfff) {
+    if (state.jiff) {
       console.log("enhanceWithAditionalFilters");
       kanji.jlpt = item.jlpt_level;
       kanji.joyo = item.joyo_grade;
