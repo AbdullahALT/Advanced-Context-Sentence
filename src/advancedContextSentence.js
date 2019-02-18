@@ -28,6 +28,8 @@
   const scriptId = "AdvancedContextSentence";
   const scriptName = "Advanced Context Sentence";
   const vocabularyPage = "/vocabulary";
+  const recognizedSelector = "a.recognized";
+  const unrecognizedSelector = "a.unrecognized";
   const sessions = [
     {
       page: "/review/session",
@@ -49,8 +51,9 @@
 
   let state = {
     settings: {
-      guruedKanjiColor: "#f100a1",
-      unguruedKanjiColor: "#888888"
+      recognizedKanjiColor: "#f100a1",
+      unrecognizedKanjiColor: "#888888",
+      recognitionLevel: "5"
     },
     kanjis: []
   };
@@ -135,7 +138,7 @@
         .ready("ItemData,Settings")
         .then(loadSettings)
         .then(proccessLoadedSettings)
-        .then(getGuruedKanji)
+        .then(getKanji)
         .then(extractKanjiFromResponse)
         .then(callback);
     } else {
@@ -284,21 +287,39 @@
       content: {
         highlightColors: {
           type: "section",
-          label: "Highlight Colors" // A string that will appear in the section.
+          label: "Highlights"
         },
-        guruedKanjiColor: {
+        recognizedKanjiColor: {
           type: "color",
-          label: "Gurued Kanji",
+          label: "Recognized Kanji",
           hover_tip:
-            "Kanji you have on Guru or higher will be highlited using this color",
-          default: state.settings.guruedKanjiColor
+            "Kanji you should be able to recognize will be highlighted using this color",
+          default: state.settings.recognizedKanjiColor
         },
-        unguruedKanjiColor: {
+        unrecognizedKanjiColor: {
           type: "color",
-          label: "Ungurued Kanji",
+          label: "Unrecognized Kanji",
           hover_tip:
-            "Kanji you have on Apprentice or have never been unlucked will be highlited using this color",
-          default: state.settings.unguruedKanjiColor
+            "Kanji you shouldn't be able to recognize will be highlighted using this color",
+          default: state.settings.unrecognizedKanjiColor
+        },
+        recognitionLevel: {
+          type: "dropdown",
+          label: "Recognition Level",
+          hover_tip:
+            "Any kanji with this level or higher will be highlighted with the 'Recognized Kanji' color",
+          default: state.settings.recognitionLevel,
+          content: {
+            1: stringfySrs(1),
+            2: stringfySrs(2),
+            3: stringfySrs(3),
+            4: stringfySrs(4),
+            5: stringfySrs(5),
+            6: stringfySrs(6),
+            7: stringfySrs(7),
+            8: stringfySrs(8),
+            9: stringfySrs(9)
+          }
         }
       }
     };
@@ -350,18 +371,20 @@
   }
 
   /**
-   * Renders the link for a kanji you've gurued
+   * Renders the link for the kanji
    * Knji pages always use https://www.wanikani.com/kanji/{kanji} where {kanji} is the kanji character
    */
   function renderKanji(char) {
-    const kanji = state.kanjis.find(item => item.char == char);
+    if (!wkof) {
+      return `<a href="https://www.wanikani.com/kanji/${char}" target="_blank" class="recognized acs-tooltip-target">${char}</a>`;
+    }
 
+    const kanji = state.kanjis.find(item => item.char == char);
     const tooltip = createTooltip(kanji);
-    return `<a href="${
+
+    return `<a data-srs='${kanji ? kanji.srs : -1}' href="${
       kanji ? kanji.url : `https://jisho.org/search/${char}`
-    }" target="_blank" class="${
-      !wkof || (kanji && kanji.srs > 4) ? "guruedKanji" : "unguruedKanji"
-    } acs-tooltip-target">${char}${tooltip}</a>`;
+    }" target="_blank" class="recognized acs-tooltip-target">${char}${tooltip}</a>`;
   }
 
   function createTooltip(kanji) {
@@ -396,9 +419,10 @@
             ? generateInfo("KN", kunyomi)
             : ""
         }
-        ${wkof && jfff ? generateInfo("JOYO", kanji.joyo) : ""}
-        ${wkof && jfff ? generateInfo("JLPT", kanji.jlpt) : ""}
-        ${wkof && jfff ? generateInfo("FREQ", kanji.frequency) : ""}
+        ${generateInfo("SRS", stringfySrs(kanji.srs))}
+        ${jfff ? generateInfo("JOYO", kanji.joyo) : ""}
+        ${jfff ? generateInfo("JLPT", kanji.jlpt) : ""}
+        ${jfff ? generateInfo("FREQ", kanji.frequency) : ""}
       </div>`;
   }
 
@@ -411,6 +435,35 @@
     return stringfied;
   }
 
+  function stringfySrs(srs) {
+    switch (srs) {
+      case -1:
+        return "Lucked";
+      case 0:
+        return "Ready To Learn";
+      case 1:
+        return "Apprentice 1";
+      case 2:
+        return "Apprentice 2";
+      case 3:
+        return "Apprentice 3";
+      case 4:
+        return "Apprentice 4";
+      case 5:
+        return "Guru 1";
+      case 6:
+        return "Guru 2";
+      case 7:
+        return "Master";
+      case 8:
+        return "Enlightened";
+      case 9:
+        return "Burned";
+      default:
+        return "";
+    }
+  }
+
   function generateInfo(title, info) {
     return `
       <div>
@@ -420,13 +473,13 @@
     `;
   }
 
-  function getGuruedKanji() {
+  function getKanji() {
     const filters = {
       item_type: ["kan"]
     };
 
     if (jfff) {
-      console.log("getGuruedKanji");
+      console.log("getKanji");
       filters.include_frequency_data = true;
       filters.include_jlpt_data = true;
       filters.include_joyo_data = true;
@@ -489,24 +542,24 @@
   }
 
   function highlightKanji() {
-    const gurued = document.querySelectorAll(
-      ".context-sentence-group a.guruedKanji"
-    );
-    gurued.forEach(kanji => {
-      kanji.setAttribute(
-        "style",
-        `color: ${state.settings.guruedKanjiColor} !important`
-      );
-    });
+    const rules = document.querySelector("#acs-style").sheet.cssRules;
+    rules[0].style.color = state.settings.recognizedKanjiColor;
+    rules[1].style.color = state.settings.unrecognizedKanjiColor;
 
-    const ungurued = document.querySelectorAll(
-      ".context-sentence-group a.unguruedKanji"
+    if (!wkof) return;
+
+    const renderedKanjiList = document.querySelectorAll(
+      ".context-sentence-group a"
     );
-    ungurued.forEach(kanji => {
-      kanji.setAttribute(
-        "style",
-        `color: ${state.settings.unguruedKanjiColor} !important`
-      );
+    renderedKanjiList.forEach(renderedKanji => {
+      if (
+        renderedKanji.getAttribute("data-srs") >=
+        state.settings.recognitionLevel
+      )
+        renderedKanji.setAttribute("class", "recognized acs-tooltip-target");
+      else {
+        renderedKanji.setAttribute("class", "unrecognized acs-tooltip-target");
+      }
     });
   }
 
@@ -521,9 +574,19 @@
   // Styles
   function createStyle() {
     const style = document.createElement("style");
+    style.setAttribute("id", "acs-style");
     style.innerHTML = `
       
       /* Kanji */
+      /* It's important for this one to be the first rule*/
+      ${recognizedSelector} {
+        
+      }
+      /* It's important for this one to be the second rule*/
+      ${unrecognizedSelector} {
+
+      }
+
       .context-sentence-group p a {
         text-decoration: none;
       }
@@ -531,7 +594,7 @@
       .context-sentence-group p a:hover {
         text-decoration: none;
       }
-      
+
       /* Styling Tooltip */
 
       .acs-tooltip-target {
