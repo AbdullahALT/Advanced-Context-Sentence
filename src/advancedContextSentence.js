@@ -1,15 +1,17 @@
 "use strict";
 
 // ==UserScript==
-// @name         Advanced Context Sentence [local]
+// @name         Advanced Context Sentence
 // @namespace    https://openuserjs.org/users/abdullahalt
-// @version      1.34
+// @version      1.40
 // @description  Enhance the context sentence section, highlighting kanji and adding audio
 // @author       abdullahalt
 // @match        https://www.wanikani.com/lesson/session
 // @match        https://www.wanikani.com/review/session
 // @match        https://www.wanikani.com/vocabulary/*
 // @grant        none
+// @require      https://unpkg.com/popper.js@1/dist/umd/popper.min.js
+// @require      https://unpkg.com/tippy.js@4
 // @copyright    2019, abdullahalt (https://openuserjs.org//users/abdullahalt)
 // @license MIT
 // ==/UserScript==
@@ -52,7 +54,12 @@
     settings: {
       recognizedKanjiColor: "#f100a1",
       unrecognizedKanjiColor: "#888888",
-      recognitionLevel: "5"
+      recognitionLevel: "5",
+      tooltip: {
+        show: true,
+        delay: 0,
+        position: "top"
+      }
     },
     kanjis: [],
     jiff: false // JLPT, Joyo and Frequency Filters
@@ -158,14 +165,14 @@
     sentences.forEach(sentence => {
       const japaneseSentence = sentence.querySelector('p[lang="ja"]');
       const audioButton = createAudioButton(japaneseSentence.innerHTML);
-      let advancedExampleSentence = "";
+      //let advancedExampleSentence = "";
       const chars = japaneseSentence.innerHTML.split("");
+      japaneseSentence.innerHTML = "";
       chars.forEach(char => {
-        const renderedChar = tagAndLinkKanji(char);
-        advancedExampleSentence = advancedExampleSentence.concat(renderedChar);
+        japaneseSentence.innerHTML =
+          japaneseSentence.innerHTML + tagAndLinkKanji(char).trim();
       });
 
-      japaneseSentence.innerHTML = advancedExampleSentence;
       highlightKanji();
 
       japaneseSentence.append(audioButton);
@@ -229,14 +236,6 @@
 
     audioContainer.append(button);
     return audioContainer;
-  }
-
-  function fixSessionAudio() {
-    const button = document.querySelector("#option-audio span button");
-    const audio = document.querySelector("#option-audio span audio");
-    button.onclick = e => {
-      audio.play();
-    };
   }
 
   function observeChanges(params) {
@@ -320,6 +319,38 @@
             8: stringfySrs(8),
             9: stringfySrs(9)
           }
+        },
+        tooltip: {
+          type: "section",
+          label: "Tooltip"
+        },
+        show: {
+          type: "checkbox",
+          label: "Show Tooltip",
+          hover_tip:
+            "Display a tooltip when hovering on kanji that will display some of its properties",
+          default: state.settings.tooltip.show,
+          path: "@tooltip.show"
+        },
+        delay: {
+          type: "number",
+          label: "Delay",
+          hover_tip: "Delay in ms before the tooltip is shown",
+          default: state.settings.tooltip.delay,
+          path: "@tooltip.delay"
+        },
+        position: {
+          type: "dropdown",
+          label: "Position",
+          hover_tip: "The placement of the tooltip",
+          default: state.settings.tooltip.position,
+          path: "@tooltip.position",
+          content: {
+            top: "Top",
+            bottom: "Bottom",
+            right: "Right",
+            left: "Left"
+          }
         }
       }
     };
@@ -352,7 +383,7 @@
   }
 
   function tagAndLinkKanji(char) {
-    return isKanji(char) ? renderKanji(char) : char;
+    return isKanji(char) ? wrapInAnchor(char).outerHTML : char;
   }
 
   /**
@@ -374,28 +405,44 @@
    * Renders the link for the kanji
    * Knji pages always use https://www.wanikani.com/kanji/{kanji} where {kanji} is the kanji character
    */
-  function renderKanji(char) {
+  function wrapInAnchor(char) {
+    const anchor = document.createElement("a");
+    anchor.setAttribute("target", "_blank");
+    anchor.setAttribute("class", "recognized");
+
     if (!wkof) {
-      return `<a href="https://www.wanikani.com/kanji/${char}" target="_blank" class="recognized acs-tooltip-target">${char}</a>`;
+      anchor.setAttribute("href", `https://www.wanikani.com/kanji/${char}`);
+      anchor.innerText = char;
+      return anchor;
     }
 
     const kanji = state.kanjis.find(item => item.char == char);
-    const tooltip = createTooltip(kanji);
 
-    return `<a data-srs='${kanji ? kanji.srs : -1}' href="${
+    anchor.setAttribute("data-srs", kanji ? kanji.srs : -1);
+    anchor.setAttribute("data-kanji", char);
+    anchor.setAttribute(
+      "href",
       kanji ? kanji.url : `https://jisho.org/search/${char}`
-    }" target="_blank" class="recognized acs-tooltip-target">${char}${tooltip}</a>`;
+    );
+
+    anchor.innerText = char;
+    return anchor;
   }
 
   function createTooltip(kanji) {
-    if (!wkof) return "";
+    if (!wkof) {
+      const container = document.createElement("span");
+      return container;
+    }
+
+    const container = document.createElement("div");
+    container.setAttribute("class", "acs-tooltip");
 
     if (!kanji) {
-      return `
-        <div class="acs-tooltip">
-          <span>Wanikani doesn't have this kanji! :(</span>
-        </div>
-      `;
+      const span = document.createElement("span");
+      span.innerText = "Wanikani doesn't have this kanji! :(";
+      container.append(span);
+      return container;
     }
 
     const onyomis = kanji.readings.filter(
@@ -409,21 +456,22 @@
     const kunyomi = stringfyArray(kunyomis, item => item.reading);
     const meaning = stringfyArray(kanji.meanings, item => item.meaning);
 
-    console.log("createTooltip");
-    return `<div class="acs-tooltip">
-        ${generateInfo("LV", kanji.level)}
-        ${generateInfo("EN", meaning)}
-        ${onyomi !== "None" && onyomi !== "" ? generateInfo("ON", onyomi) : ""}
-        ${
-          kunyomi !== "None" && kunyomi !== ""
-            ? generateInfo("KN", kunyomi)
-            : ""
-        }
-        ${generateInfo("SRS", stringfySrs(kanji.srs))}
-        ${state.jiff ? generateInfo("JOYO", kanji.joyo) : ""}
-        ${state.jiff ? generateInfo("JLPT", kanji.jlpt) : ""}
-        ${state.jiff ? generateInfo("FREQ", kanji.frequency) : ""}
-      </div>`;
+    container.append(generateInfo("LV", kanji.level));
+
+    container.append(generateInfo("EN", meaning));
+
+    if (onyomi !== "None" && onyomi !== "")
+      container.append(generateInfo("ON", onyomi));
+    if (kunyomi !== "None" && kunyomi !== "")
+      container.append(generateInfo("KN", kunyomi));
+    container.append(generateInfo("SRS", stringfySrs(kanji.srs)));
+
+    if (state.jiff) {
+      container.append(generateInfo("JOYO", kanji.joyo));
+      container.append(generateInfo("JLPT", kanji.jlpt));
+      container.append(generateInfo("FREQ", kanji.frequency));
+    }
+    return container;
   }
 
   function stringfyArray(array, pathToString) {
@@ -438,7 +486,7 @@
   function stringfySrs(srs) {
     switch (srs) {
       case -1:
-        return "Lucked";
+        return "Locked";
       case 0:
         return "Ready To Learn";
       case 1:
@@ -465,12 +513,14 @@
   }
 
   function generateInfo(title, info) {
-    return `
-      <div>
-        <span class="acs-tooltip-title">${title}</span>
-        <span>${info}</span>
-      </div>
-    `;
+    const container = document.createElement("div");
+    const key = document.createElement("span");
+    key.setAttribute("class", "acs-tooltip-header");
+    const value = document.createElement("span");
+    key.innerText = title;
+    value.innerText = info;
+    container.append(key, " ", value);
+    return container;
   }
 
   function getKanji() {
@@ -523,7 +573,6 @@
 
   function enhanceWithAditionalFilters(kanji, item) {
     if (state.jiff) {
-      console.log("enhanceWithAditionalFilters");
       kanji.jlpt = item.jlpt_level;
       kanji.joyo = item.joyo_grade;
       kanji.frequency = item.frequency;
@@ -548,17 +597,29 @@
 
     if (!wkof) return;
 
-    const renderedKanjiList = document.querySelectorAll(
-      ".context-sentence-group a"
-    );
-    renderedKanjiList.forEach(renderedKanji => {
-      if (
-        renderedKanji.getAttribute("data-srs") >=
-        state.settings.recognitionLevel
-      )
-        renderedKanji.setAttribute("class", "recognized acs-tooltip-target");
+    const anchors = document.querySelectorAll(".context-sentence-group a");
+    anchors.forEach(anchor => {
+      const srs = anchor.getAttribute("data-srs");
+      const char = anchor.getAttribute("data-kanji");
+
+      if (srs >= state.settings.recognitionLevel)
+        anchor.setAttribute("class", "recognized");
       else {
-        renderedKanji.setAttribute("class", "unrecognized acs-tooltip-target");
+        anchor.setAttribute("class", "unrecognized");
+      }
+
+      if (anchor._tippy) anchor._tippy.destroy();
+      if (state.settings.tooltip.show) {
+        const kanji = state.kanjis.find(item => item.char == char);
+        const tooltip = createTooltip(kanji);
+
+        tippy(anchor, {
+          content: tooltip.outerHTML,
+          size: "small",
+          arrow: true,
+          placement: state.settings.tooltip.position,
+          delay: [state.settings.tooltip.delay, 20]
+        });
       }
     });
   }
@@ -595,55 +656,14 @@
         text-decoration: none;
       }
 
-      /* Styling Tooltip */
-
-      .acs-tooltip-target {
-        position: relative;
-        display: inline-block;
+      .acs-tooltip {
+        text-align: left
       }
 
-      .acs-tooltip-target:hover .acs-tooltip {
-        visibility: visible;
+      .acs-tooltip-header {
+        color: #929292
       }
-      
-      .acs-tooltip-target .acs-tooltip {
-        visibility: hidden;
-        width: 120px;
-        background-color: rgba(0,0,0,0.8);
-        color: #fff;
-        padding: 5px 7px;
-        border-radius: 6px;
-        width: 120px;
-        top: 100%;
-        left: 50%;
-        margin-left: -67px;
-        margin-top: 10px;
-        position: absolute;
-        text-shadow: none;
-        font-size: 0.8em;
-        z-index: 1;
-      }
-
-      .acs-tooltip-target .acs-tooltip::after {
-        content: " ";
-        position: absolute;
-        bottom: 100%;  
-        left: 50%;
-        margin-left: -5px;
-        border-width: 5px;
-        border-style: solid;
-        border-color: transparent transparent black transparent;
-      }
-
-      .acs-tooltip-target .acs-tooltip div {
-        margin-bottom: 0px;
-        line-height: 16px;
-      }
-
-      .acs-tooltip-target .acs-tooltip .acs-tooltip-title {
-        color: #939095 !important
-      }
-
+    
     `;
 
     document.querySelector("head").append(style);
